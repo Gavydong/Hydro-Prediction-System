@@ -1,0 +1,1037 @@
+---
+title: "Yearly Report of Peak Shaving for Fort William TS Power Station"
+output:
+  bookdown::html_document2:
+    toc: true
+params:
+  report_month: '2018-04-01'
+---
+<style type="text/css">
+  body{
+  font-size: 12pt;
+  }
+</style>
+---
+date: `r format(as.Date(params$report_month), "%Y")`
+---
+
+```{r echo=FALSE,warning=FALSE,message=FALSE, results='hide', out.width='100%'}
+require("keras")
+require("jsonlite")
+require("lubridate")
+require("htmlwidgets")
+require("plotly")
+require("RMySQL")
+require("RODBC")
+require("tidyverse")
+require("DMwR")
+require("zoo")
+require("ggplot2")
+require("mailR")
+require("recipes")
+require("dplyr")
+library(htmlwidgets)
+library(lubridate)
+library(Cubist)
+library(caTools)
+library(rpart)
+library (dplyr)
+library(caret)
+library(rpart.plot)
+library(reticulate)
+library(readr)
+library(plotly)
+library(stringr)
+library(keras)
+library(recipes)
+library(xgboost)
+library(h2o)
+library(hrbrthemes)
+library(chron)
+library(Metrics)
+library(scales)
+library(zoo)
+library('dplyr')
+if(!require(kableExtra)){
+  install.packages("kableExtra")
+  library(kableExtra)
+}
+if(!require(philentropy)){
+  install.packages("philentropy")
+  library(philentropy)
+}
+if(!require(webshot)){
+  install.packages("webshot")
+  webshot::install_phantomjs()
+  library(webshot)
+}
+h2o.init(nthreads=-1, max_mem_size="2G")
+setwd("D:/Hydro-prediction-System/ui")
+
+
+data <- read.csv("total_dataset.csv", header=TRUE, sep=",", na.strings=c("NA", "NULL"),stringsAsFactors=FALSE)
+scale_data<-scale(data$fwts)
+data$fwts<-scale(data$fwts)
+source('Make_prediction.R')
+source('Monthly.R')
+source("plot_function.R")
+battery_size<-4000
+l_of_p<-make_prediction_monthly(params$report_month)
+monthreport_shaved<-ifelse(!is.na(l_of_p$peak_period),l_of_p$test-battery_size,l_of_p$test)
+
+peak_period<-l_of_p$peak_period
+low_peak_period<- l_of_p$low_peak_period
+normal_period<-l_of_p$normal_period
+success<-!l_of_p$hours[which.max(monthreport_shaved)]==l_of_p$xcoord_list$test
+  #l_of_p$hours[which.max(monthreport_shaved)]==l_of_p$xcoord_list$test
+E_peak<-l_of_p$ymax_list$test
+E_price<-l_of_p$ymax_list$test/2
+S_peak<-max(monthreport_shaved)
+S_price<-max(monthreport_shaved)/2
+Dif_price<-(l_of_p$ymax_list$test-max(monthreport_shaved))/2
+Dif_peak<-l_of_p$ymax_list$test-max(monthreport_shaved)
+yearly_table<-data.frame("January",E_peak,S_peak,Dif_peak,E_price,S_price,Dif_price)
+colnames(yearly_table)<-c('Month', "Expected_Peak","Shaved_Peak","Peak_Reduction","Expected_Price","Shaved_Price","Price_Reduction")
+
+```
+
+
+# Overview
+This yearly report analyzes the Peak Shaving system of Fort William TS power station during <span style='color:red'>`r format(as.Date(params$report_month), "%Y")`</span>. This report contains two main sections: First, the graphical results of each month of this year, from January to December respectively. Each figure represents a monthly forecasting graph of the month. The black line describes the actual power consumption curve; the red line describes the prediction curve and the yellow line describes the battery discharging period set by the predicted peak. Second, a table of monthly numerical results peak shaving activities of power consumption and expected bill saving.
+
+# January 
+
+<br><br>
+```{r fig0,fig.cap = "Monthly forecasting graph\\label{fig0}",echo=FALSE,message=FALSE, out.width='100%'}
+plot_ly(
+    mode = 'lines+markers'
+  ) %>%
+  add_trace(
+    y =  ~ l_of_p$test,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = "Test Data",
+    line = list(color = ("black"))
+  ) %>%
+  add_trace(
+    y =  ~ peak_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = paste("Discharging Period"),
+    line = list(color = 'yellow')
+  ) %>%
+  add_trace(
+    y =  ~ low_peak_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = paste("Charging Period"),
+    line = list(color = 'blue')
+  ) %>%
+  add_trace(
+    y =  ~ normal_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = "Prediction",
+    line = list(color = 'red')
+  ) %>%
+  add_trace(
+    x =  ~ l_of_p$xcoord_list$test,
+    y =  ~ l_of_p$ymax_list$test,
+    mode = 'markers',
+    type = 'scatter',
+    name = paste("Highest Peak", l_of_p$ymax_list),
+    marker = list(color = ("black"),size=13,symbol="triangle-up")
+  )%>%
+  layout(
+    title = paste("From",strftime(as.POSIXct(l_of_p$hours[100]), format="%B %d, %Y"),
+                  "to"
+                  ,strftime(as.POSIXct(l_of_p$hours[length(l_of_p$hours)]), format="%B %d, %Y")),
+    xaxis = list(
+      title = 'Time',
+      autotick = TRUE,
+      showticklabels = TRUE
+    ),
+    yaxis = list(title = "Power Consumption")
+  )
+```
+<br><br>
+
+# February  
+
+<br><br>
+```{r fig1,fig.cap = "Monthly forecasting graph\\label{fig1}",echo=FALSE,message=FALSE, out.width='100%'}
+monthdate<-ymd(params$report_month) %m+% months(1)
+#l_of_p<-make_prediction_monthly(monthdate)
+monthreport_shaved<-ifelse(!is.na(l_of_p$peak_period),l_of_p$test-battery_size,l_of_p$test)
+
+peak_period<-l_of_p$peak_period
+low_peak_period<- l_of_p$low_peak_period
+normal_period<-l_of_p$normal_period
+
+
+E_peak<-l_of_p$ymax_list$test
+E_price<-l_of_p$ymax_list$test/2
+S_peak<-max(monthreport_shaved)
+S_price<-max(monthreport_shaved)/2
+Dif_price<-(l_of_p$ymax_list$test-max(monthreport_shaved))/2
+Dif_peak<-l_of_p$ymax_list$test-max(monthreport_shaved)
+temp<-data.frame("February",E_peak,S_peak,Dif_peak,E_price,S_price,Dif_price)
+colnames(temp)<-c('Month', "Expected_Peak","Shaved_Peak","Peak_Reduction","Expected_Price","Shaved_Price","Price_Reduction")
+yearly_table<-rbind(yearly_table,temp)
+plot_ly(
+    mode = 'lines+markers'
+  ) %>%
+  add_trace(
+    y =  ~ l_of_p$test,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = "Test Data",
+    line = list(color = ("black"))
+  ) %>%
+  add_trace(
+    y =  ~ peak_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = paste("Discharging Period"),
+    line = list(color = 'yellow')
+  ) %>%
+  add_trace(
+    y =  ~ low_peak_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = paste("Charging Period"),
+    line = list(color = 'blue')
+  ) %>%
+  add_trace(
+    y =  ~ normal_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = "Prediction",
+    line = list(color = 'red')
+  ) %>%
+  add_trace(
+    x =  ~ l_of_p$xcoord_list$test,
+    y =  ~ l_of_p$ymax_list$test,
+    mode = 'markers',
+    type = 'scatter',
+    name = paste("Highest Peak", l_of_p$ymax_list),
+    marker = list(color = ("black"),size=13,symbol="triangle-up")
+  )%>%
+  layout(
+    title = paste("From",strftime(as.POSIXct(l_of_p$hours[100]), format="%B %d, %Y"),
+                  "to"
+                  ,strftime(as.POSIXct(l_of_p$hours[length(l_of_p$hours)]), format="%B %d, %Y")),
+    xaxis = list(
+      title = 'Time',
+      autotick = TRUE,
+      showticklabels = TRUE
+    ),
+    yaxis = list(title = "Power Consumption")
+  )
+```
+<br><br>
+
+# March  
+
+<br><br>
+```{r fig2,fig.cap = "Monthly forecasting graph\\label{fig2}",echo=FALSE,message=FALSE, out.width='100%'}
+monthdate<-ymd(params$report_month) %m+% months(2)
+#l_of_p<-make_prediction_monthly(monthdate)
+monthreport_shaved<-ifelse(!is.na(l_of_p$peak_period),l_of_p$test-battery_size,l_of_p$test)
+
+peak_period<-l_of_p$peak_period
+low_peak_period<- l_of_p$low_peak_period
+normal_period<-l_of_p$normal_period
+
+E_peak<-l_of_p$ymax_list$test
+E_price<-l_of_p$ymax_list$test/2
+S_peak<-max(monthreport_shaved)
+S_price<-max(monthreport_shaved)/2
+Dif_price<-(l_of_p$ymax_list$test-max(monthreport_shaved))/2
+Dif_peak<-l_of_p$ymax_list$test-max(monthreport_shaved)
+temp<-data.frame("March",E_peak,S_peak,Dif_peak,E_price,S_price,Dif_price)
+colnames(temp)<-c('Month', "Expected_Peak","Shaved_Peak","Peak_Reduction","Expected_Price","Shaved_Price","Price_Reduction")
+yearly_table<-rbind(yearly_table,temp)
+plot_ly(
+    mode = 'lines+markers'
+  ) %>%
+  add_trace(
+    y =  ~ l_of_p$test,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = "Test Data",
+    line = list(color = ("black"))
+  ) %>%
+  add_trace(
+    y =  ~ peak_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = paste("Discharging Period"),
+    line = list(color = 'yellow')
+  ) %>%
+  add_trace(
+    y =  ~ low_peak_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = paste("Charging Period"),
+    line = list(color = 'blue')
+  ) %>%
+  add_trace(
+    y =  ~ normal_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = "Prediction",
+    line = list(color = 'red')
+  ) %>%
+  add_trace(
+    x =  ~ l_of_p$xcoord_list$test,
+    y =  ~ l_of_p$ymax_list$test,
+    mode = 'markers',
+    type = 'scatter',
+    name = paste("Highest Peak", l_of_p$ymax_list),
+    marker = list(color = ("black"),size=13,symbol="triangle-up")
+  )%>%
+  layout(
+    title = paste("From",strftime(as.POSIXct(l_of_p$hours[100]), format="%B %d, %Y"),
+                  "to"
+                  ,strftime(as.POSIXct(l_of_p$hours[length(l_of_p$hours)]), format="%B %d, %Y")),
+    xaxis = list(
+      title = 'Time',
+      autotick = TRUE,
+      showticklabels = TRUE
+    ),
+    yaxis = list(title = "Power Consumption")
+  )
+```
+<br><br>
+
+# April  
+
+<br><br>
+```{r fig3,fig.cap = "Monthly forecasting graph\\label{fig3}",echo=FALSE,message=FALSE, out.width='100%'}
+monthdate<-ymd(params$report_month) %m+% months(3)
+#l_of_p<-make_prediction_monthly(monthdate)
+monthreport_shaved<-ifelse(!is.na(l_of_p$peak_period),l_of_p$test-battery_size,l_of_p$test)
+
+peak_period<-l_of_p$peak_period
+low_peak_period<- l_of_p$low_peak_period
+normal_period<-l_of_p$normal_period
+
+E_peak<-l_of_p$ymax_list$test
+E_price<-l_of_p$ymax_list$test/2
+S_peak<-max(monthreport_shaved)
+S_price<-max(monthreport_shaved)/2
+Dif_price<-(l_of_p$ymax_list$test-max(monthreport_shaved))/2
+Dif_peak<-l_of_p$ymax_list$test-max(monthreport_shaved)
+temp<-data.frame("April",E_peak,S_peak,Dif_peak,E_price,S_price,Dif_price)
+colnames(temp)<-c('Month', "Expected_Peak","Shaved_Peak","Peak_Reduction","Expected_Price","Shaved_Price","Price_Reduction")
+yearly_table<-rbind(yearly_table,temp)
+plot_ly(
+    mode = 'lines+markers'
+  ) %>%
+  add_trace(
+    y =  ~ l_of_p$test,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = "Test Data",
+    line = list(color = ("black"))
+  ) %>%
+  add_trace(
+    y =  ~ peak_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = paste("Discharging Period"),
+    line = list(color = 'yellow')
+  ) %>%
+  add_trace(
+    y =  ~ low_peak_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = paste("Charging Period"),
+    line = list(color = 'blue')
+  ) %>%
+  add_trace(
+    y =  ~ normal_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = "Prediction",
+    line = list(color = 'red')
+  ) %>%
+  add_trace(
+    x =  ~ l_of_p$xcoord_list$test,
+    y =  ~ l_of_p$ymax_list$test,
+    mode = 'markers',
+    type = 'scatter',
+    name = paste("Highest Peak", l_of_p$ymax_list),
+    marker = list(color = ("black"),size=13,symbol="triangle-up")
+  )%>%
+  layout(
+    title = paste("From",strftime(as.POSIXct(l_of_p$hours[100]), format="%B %d, %Y"),
+                  "to"
+                  ,strftime(as.POSIXct(l_of_p$hours[length(l_of_p$hours)]), format="%B %d, %Y")),
+    xaxis = list(
+      title = 'Time',
+      autotick = TRUE,
+      showticklabels = TRUE
+    ),
+    yaxis = list(title = "Power Consumption")
+  )
+```
+<br><br>
+
+# May  
+
+<br><br>
+```{r fig4,fig.cap = "Monthly forecasting graph\\label{fig4}",echo=FALSE,message=FALSE, out.width='100%'}
+monthdate<-ymd(params$report_month) %m+% months(1)
+l_of_p<-make_prediction_monthly(monthdate)
+monthreport_shaved<-ifelse(!is.na(l_of_p$peak_period),l_of_p$test-battery_size,l_of_p$test)
+
+peak_period<-l_of_p$peak_period
+low_peak_period<- l_of_p$low_peak_period
+normal_period<-l_of_p$normal_period
+
+E_peak<-l_of_p$ymax_list$test
+E_price<-l_of_p$ymax_list$test/2
+S_peak<-max(monthreport_shaved)
+S_price<-max(monthreport_shaved)/2
+Dif_price<-(l_of_p$ymax_list$test-max(monthreport_shaved))/2
+Dif_peak<-l_of_p$ymax_list$test-max(monthreport_shaved)
+temp<-data.frame("May",E_peak,S_peak,Dif_peak,E_price,S_price,Dif_price)
+colnames(temp)<-c('Month', "Expected_Peak","Shaved_Peak","Peak_Reduction","Expected_Price","Shaved_Price","Price_Reduction")
+yearly_table<-rbind(yearly_table,temp)
+plot_ly(
+    mode = 'lines+markers'
+  ) %>%
+  add_trace(
+    y =  ~ l_of_p$test,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = "Test Data",
+    line = list(color = ("black"))
+  ) %>%
+  add_trace(
+    y =  ~ peak_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = paste("Discharging Period"),
+    line = list(color = 'yellow')
+  ) %>%
+  add_trace(
+    y =  ~ low_peak_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = paste("Charging Period"),
+    line = list(color = 'blue')
+  ) %>%
+  add_trace(
+    y =  ~ normal_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = "Prediction",
+    line = list(color = 'red')
+  ) %>%
+  add_trace(
+    x =  ~ l_of_p$xcoord_list$test,
+    y =  ~ l_of_p$ymax_list$test,
+    mode = 'markers',
+    type = 'scatter',
+    name = paste("Highest Peak", l_of_p$ymax_list),
+    marker = list(color = ("black"),size=13,symbol="triangle-up")
+  )%>%
+  layout(
+    title = paste("From",strftime(as.POSIXct(l_of_p$hours[100]), format="%B %d, %Y"),
+                  "to"
+                  ,strftime(as.POSIXct(l_of_p$hours[length(l_of_p$hours)]), format="%B %d, %Y")),
+    xaxis = list(
+      title = 'Time',
+      autotick = TRUE,
+      showticklabels = TRUE
+    ),
+    yaxis = list(title = "Power Consumption")
+  )
+```
+<br><br>
+
+# June  
+
+<br><br>
+```{r fig5,fig.cap = "Monthly forecasting graph\\label{fig5}",echo=FALSE,message=FALSE, out.width='100%'}
+monthdate<-ymd(params$report_month) %m+% months(2)
+l_of_p<-make_prediction_monthly(monthdate)
+monthreport_shaved<-ifelse(!is.na(l_of_p$peak_period),l_of_p$test-battery_size,l_of_p$test)
+
+peak_period<-l_of_p$peak_period
+low_peak_period<- l_of_p$low_peak_period
+normal_period<-l_of_p$normal_period
+
+E_peak<-l_of_p$ymax_list$test
+E_price<-l_of_p$ymax_list$test/2
+S_peak<-max(monthreport_shaved)
+S_price<-max(monthreport_shaved)/2
+Dif_price<-(l_of_p$ymax_list$test-max(monthreport_shaved))/2
+Dif_peak<-l_of_p$ymax_list$test-max(monthreport_shaved)
+temp<-data.frame("June",E_peak,S_peak,Dif_peak,E_price,S_price,Dif_price)
+colnames(temp)<-c('Month', "Expected_Peak","Shaved_Peak","Peak_Reduction","Expected_Price","Shaved_Price","Price_Reduction")
+yearly_table<-rbind(yearly_table,temp)
+plot_ly(
+    mode = 'lines+markers'
+  ) %>%
+  add_trace(
+    y =  ~ l_of_p$test,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = "Test Data",
+    line = list(color = ("black"))
+  ) %>%
+  add_trace(
+    y =  ~ peak_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = paste("Discharging Period"),
+    line = list(color = 'yellow')
+  ) %>%
+  add_trace(
+    y =  ~ low_peak_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = paste("Charging Period"),
+    line = list(color = 'blue')
+  ) %>%
+  add_trace(
+    y =  ~ normal_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = "Prediction",
+    line = list(color = 'red')
+  ) %>%
+  add_trace(
+    x =  ~ l_of_p$xcoord_list$test,
+    y =  ~ l_of_p$ymax_list$test,
+    mode = 'markers',
+    type = 'scatter',
+    name = paste("Highest Peak", l_of_p$ymax_list),
+    marker = list(color = ("black"),size=13,symbol="triangle-up")
+  )%>%
+  layout(
+    title = paste("From",strftime(as.POSIXct(l_of_p$hours[100]), format="%B %d, %Y"),
+                  "to"
+                  ,strftime(as.POSIXct(l_of_p$hours[length(l_of_p$hours)]), format="%B %d, %Y")),
+    xaxis = list(
+      title = 'Time',
+      autotick = TRUE,
+      showticklabels = TRUE
+    ),
+    yaxis = list(title = "Power Consumption")
+  )
+```
+<br><br>
+
+# July  
+
+<br><br>
+```{r fig6,fig.cap = "Monthly forecasting graph\\label{fig6}",echo=FALSE,message=FALSE, out.width='100%'}
+monthdate<-ymd(params$report_month) %m+% months(3)
+l_of_p<-make_prediction_monthly(monthdate)
+monthreport_shaved<-ifelse(!is.na(l_of_p$peak_period),l_of_p$test-battery_size,l_of_p$test)
+
+peak_period<-l_of_p$peak_period
+low_peak_period<- l_of_p$low_peak_period
+normal_period<-l_of_p$normal_period
+
+E_peak<-l_of_p$ymax_list$test
+E_price<-l_of_p$ymax_list$test/2
+S_peak<-max(monthreport_shaved)
+S_price<-max(monthreport_shaved)/2
+Dif_price<-(l_of_p$ymax_list$test-max(monthreport_shaved))/2
+Dif_peak<-l_of_p$ymax_list$test-max(monthreport_shaved)
+temp<-data.frame("July",E_peak,S_peak,Dif_peak,E_price,S_price,Dif_price)
+colnames(temp)<-c('Month', "Expected_Peak","Shaved_Peak","Peak_Reduction","Expected_Price","Shaved_Price","Price_Reduction")
+yearly_table<-rbind(yearly_table,temp)
+plot_ly(
+    mode = 'lines+markers'
+  ) %>%
+  add_trace(
+    y =  ~ l_of_p$test,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = "Test Data",
+    line = list(color = ("black"))
+  ) %>%
+  add_trace(
+    y =  ~ peak_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = paste("Discharging Period"),
+    line = list(color = 'yellow')
+  ) %>%
+  add_trace(
+    y =  ~ low_peak_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = paste("Charging Period"),
+    line = list(color = 'blue')
+  ) %>%
+  add_trace(
+    y =  ~ normal_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = "Prediction",
+    line = list(color = 'red')
+  ) %>%
+  add_trace(
+    x =  ~ l_of_p$xcoord_list$test,
+    y =  ~ l_of_p$ymax_list$test,
+    mode = 'markers',
+    type = 'scatter',
+    name = paste("Highest Peak", l_of_p$ymax_list),
+    marker = list(color = ("black"),size=13,symbol="triangle-up")
+  )%>%
+  layout(
+    title = paste("From",strftime(as.POSIXct(l_of_p$hours[100]), format="%B %d, %Y"),
+                  "to"
+                  ,strftime(as.POSIXct(l_of_p$hours[length(l_of_p$hours)]), format="%B %d, %Y")),
+    xaxis = list(
+      title = 'Time',
+      autotick = TRUE,
+      showticklabels = TRUE
+    ),
+    yaxis = list(title = "Power Consumption")
+  )
+```
+<br><br>
+
+# August  
+
+<br><br>
+```{r fig7,fig.cap = "Monthly forecasting graph\\label{fig7}",echo=FALSE,message=FALSE, out.width='100%'}
+monthdate<-ymd(params$report_month) %m+% months(4)
+l_of_p<-make_prediction_monthly(monthdate)
+monthreport_shaved<-ifelse(!is.na(l_of_p$peak_period),l_of_p$test-battery_size,l_of_p$test)
+
+peak_period<-l_of_p$peak_period
+low_peak_period<- l_of_p$low_peak_period
+normal_period<-l_of_p$normal_period
+
+E_peak<-l_of_p$ymax_list$test
+E_price<-l_of_p$ymax_list$test/2
+S_peak<-max(monthreport_shaved)
+S_price<-max(monthreport_shaved)/2
+Dif_price<-(l_of_p$ymax_list$test-max(monthreport_shaved))/2
+Dif_peak<-l_of_p$ymax_list$test-max(monthreport_shaved)
+temp<-data.frame("August",E_peak,S_peak,Dif_peak,E_price,S_price,Dif_price)
+colnames(temp)<-c('Month', "Expected_Peak","Shaved_Peak","Peak_Reduction","Expected_Price","Shaved_Price","Price_Reduction")
+yearly_table<-rbind(yearly_table,temp)
+plot_ly(
+    mode = 'lines+markers'
+  ) %>%
+  add_trace(
+    y =  ~ l_of_p$test,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = "Test Data",
+    line = list(color = ("black"))
+  ) %>%
+  add_trace(
+    y =  ~ peak_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = paste("Discharging Period"),
+    line = list(color = 'yellow')
+  ) %>%
+  add_trace(
+    y =  ~ low_peak_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = paste("Charging Period"),
+    line = list(color = 'blue')
+  ) %>%
+  add_trace(
+    y =  ~ normal_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = "Prediction",
+    line = list(color = 'red')
+  ) %>%
+  add_trace(
+    x =  ~ l_of_p$xcoord_list$test,
+    y =  ~ l_of_p$ymax_list$test,
+    mode = 'markers',
+    type = 'scatter',
+    name = paste("Highest Peak", l_of_p$ymax_list),
+    marker = list(color = ("black"),size=13,symbol="triangle-up")
+  )%>%
+  layout(
+    title = paste("From",strftime(as.POSIXct(l_of_p$hours[100]), format="%B %d, %Y"),
+                  "to"
+                  ,strftime(as.POSIXct(l_of_p$hours[length(l_of_p$hours)]), format="%B %d, %Y")),
+    xaxis = list(
+      title = 'Time',
+      autotick = TRUE,
+      showticklabels = TRUE
+    ),
+    yaxis = list(title = "Power Consumption")
+  )
+```
+<br><br>
+
+# September  
+
+<br><br>
+```{r fig8,fig.cap = "Monthly forecasting graph\\label{fig8}",echo=FALSE,message=FALSE, out.width='100%'}
+monthdate<-ymd(params$report_month) %m+% months(5)
+l_of_p<-make_prediction_monthly(monthdate)
+monthreport_shaved<-ifelse(!is.na(l_of_p$peak_period),l_of_p$test-battery_size,l_of_p$test)
+
+peak_period<-l_of_p$peak_period
+low_peak_period<- l_of_p$low_peak_period
+normal_period<-l_of_p$normal_period
+
+E_peak<-l_of_p$ymax_list$test
+E_price<-l_of_p$ymax_list$test/2
+S_peak<-max(monthreport_shaved)
+S_price<-max(monthreport_shaved)/2
+Dif_price<-(l_of_p$ymax_list$test-max(monthreport_shaved))/2
+Dif_peak<-l_of_p$ymax_list$test-max(monthreport_shaved)
+temp<-data.frame("September",E_peak,S_peak,Dif_peak,E_price,S_price,Dif_price)
+colnames(temp)<-c('Month', "Expected_Peak","Shaved_Peak","Peak_Reduction","Expected_Price","Shaved_Price","Price_Reduction")
+yearly_table<-rbind(yearly_table,temp)
+plot_ly(
+    mode = 'lines+markers'
+  ) %>%
+  add_trace(
+    y =  ~ l_of_p$test,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = "Test Data",
+    line = list(color = ("black"))
+  ) %>%
+  add_trace(
+    y =  ~ peak_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = paste("Discharging Period"),
+    line = list(color = 'yellow')
+  ) %>%
+  add_trace(
+    y =  ~ low_peak_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = paste("Charging Period"),
+    line = list(color = 'blue')
+  ) %>%
+  add_trace(
+    y =  ~ normal_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = "Prediction",
+    line = list(color = 'red')
+  ) %>%
+  add_trace(
+    x =  ~ l_of_p$xcoord_list$test,
+    y =  ~ l_of_p$ymax_list$test,
+    mode = 'markers',
+    type = 'scatter',
+    name = paste("Highest Peak", l_of_p$ymax_list),
+    marker = list(color = ("black"),size=13,symbol="triangle-up")
+  )%>%
+  layout(
+    title = paste("From",strftime(as.POSIXct(l_of_p$hours[100]), format="%B %d, %Y"),
+                  "to"
+                  ,strftime(as.POSIXct(l_of_p$hours[length(l_of_p$hours)]), format="%B %d, %Y")),
+    xaxis = list(
+      title = 'Time',
+      autotick = TRUE,
+      showticklabels = TRUE
+    ),
+    yaxis = list(title = "Power Consumption")
+  )
+```
+<br><br>
+
+# October 
+
+<br><br>
+```{r fig9,fig.cap = "Monthly forecasting graph\\label{fig9}",echo=FALSE,message=FALSE, out.width='100%'}
+monthdate<-ymd(params$report_month) %m+% months(6)
+l_of_p<-make_prediction_monthly(monthdate)
+monthreport_shaved<-ifelse(!is.na(l_of_p$peak_period),l_of_p$test-battery_size,l_of_p$test)
+
+peak_period<-l_of_p$peak_period
+low_peak_period<- l_of_p$low_peak_period
+normal_period<-l_of_p$normal_period
+
+E_peak<-l_of_p$ymax_list$test
+E_price<-l_of_p$ymax_list$test/2
+S_peak<-max(monthreport_shaved)
+S_price<-max(monthreport_shaved)/2
+Dif_price<-(l_of_p$ymax_list$test-max(monthreport_shaved))/2
+Dif_peak<-l_of_p$ymax_list$test-max(monthreport_shaved)
+temp<-data.frame("October",E_peak,S_peak,Dif_peak,E_price,S_price,Dif_price)
+colnames(temp)<-c('Month', "Expected_Peak","Shaved_Peak","Peak_Reduction","Expected_Price","Shaved_Price","Price_Reduction")
+yearly_table<-rbind(yearly_table,temp)
+plot_ly(
+    mode = 'lines+markers'
+  ) %>%
+  add_trace(
+    y =  ~ l_of_p$test,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = "Test Data",
+    line = list(color = ("black"))
+  ) %>%
+  add_trace(
+    y =  ~ peak_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = paste("Discharging Period"),
+    line = list(color = 'yellow')
+  ) %>%
+  add_trace(
+    y =  ~ low_peak_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = paste("Charging Period"),
+    line = list(color = 'blue')
+  ) %>%
+  add_trace(
+    y =  ~ normal_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = "Prediction",
+    line = list(color = 'red')
+  ) %>%
+  add_trace(
+    x =  ~ l_of_p$xcoord_list$test,
+    y =  ~ l_of_p$ymax_list$test,
+    mode = 'markers',
+    type = 'scatter',
+    name = paste("Highest Peak", l_of_p$ymax_list),
+    marker = list(color = ("black"),size=13,symbol="triangle-up")
+  )%>%
+  layout(
+    title = paste("From",strftime(as.POSIXct(l_of_p$hours[100]), format="%B %d, %Y"),
+                  "to"
+                  ,strftime(as.POSIXct(l_of_p$hours[length(l_of_p$hours)]), format="%B %d, %Y")),
+    xaxis = list(
+      title = 'Time',
+      autotick = TRUE,
+      showticklabels = TRUE
+    ),
+    yaxis = list(title = "Power Consumption")
+  )
+```
+<br><br>
+
+# November  
+
+<br><br>
+```{r fig10,fig.cap = "Monthly forecasting graph\\label{fig10}",echo=FALSE,message=FALSE, out.width='100%'}
+monthdate<-ymd(params$report_month) %m+% months(7)
+l_of_p<-make_prediction_monthly(monthdate)
+monthreport_shaved<-ifelse(!is.na(l_of_p$peak_period),l_of_p$test-battery_size,l_of_p$test)
+
+peak_period<-l_of_p$peak_period
+low_peak_period<- l_of_p$low_peak_period
+normal_period<-l_of_p$normal_period
+
+E_peak<-l_of_p$ymax_list$test
+E_price<-l_of_p$ymax_list$test/2
+S_peak<-max(monthreport_shaved)
+S_price<-max(monthreport_shaved)/2
+Dif_price<-(l_of_p$ymax_list$test-max(monthreport_shaved))/2
+Dif_peak<-l_of_p$ymax_list$test-max(monthreport_shaved)
+temp<-data.frame("November",E_peak,S_peak,Dif_peak,E_price,S_price,Dif_price)
+colnames(temp)<-c('Month', "Expected_Peak","Shaved_Peak","Peak_Reduction","Expected_Price","Shaved_Price","Price_Reduction")
+yearly_table<-rbind(yearly_table,temp)
+plot_ly(
+    mode = 'lines+markers'
+  ) %>%
+  add_trace(
+    y =  ~ l_of_p$test,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = "Test Data",
+    line = list(color = ("black"))
+  ) %>%
+  add_trace(
+    y =  ~ peak_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = paste("Discharging Period"),
+    line = list(color = 'yellow')
+  ) %>%
+  add_trace(
+    y =  ~ low_peak_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = paste("Charging Period"),
+    line = list(color = 'blue')
+  ) %>%
+  add_trace(
+    y =  ~ normal_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = "Prediction",
+    line = list(color = 'red')
+  ) %>%
+  add_trace(
+    x =  ~ l_of_p$xcoord_list$test,
+    y =  ~ l_of_p$ymax_list$test,
+    mode = 'markers',
+    type = 'scatter',
+    name = paste("Highest Peak", l_of_p$ymax_list),
+    marker = list(color = ("black"),size=13,symbol="triangle-up")
+  )%>%
+  layout(
+    title = paste("From",strftime(as.POSIXct(l_of_p$hours[100]), format="%B %d, %Y"),
+                  "to"
+                  ,strftime(as.POSIXct(l_of_p$hours[length(l_of_p$hours)]), format="%B %d, %Y")),
+    xaxis = list(
+      title = 'Time',
+      autotick = TRUE,
+      showticklabels = TRUE
+    ),
+    yaxis = list(title = "Power Consumption")
+  )
+```
+<br><br>
+
+# December 
+
+<br><br>
+
+```{r fig11,fig.cap = "Monthly forecasting graph\\label{fig11}",echo=FALSE,message=FALSE, out.width='100%'}
+monthdate<-ymd(params$report_month) %m+% months(8)
+l_of_p<-make_prediction_monthly(monthdate)
+monthreport_shaved<-ifelse(!is.na(l_of_p$peak_period),l_of_p$test-battery_size,l_of_p$test)
+
+peak_period<-l_of_p$peak_period
+low_peak_period<- l_of_p$low_peak_period
+normal_period<-l_of_p$normal_period
+
+E_peak<-l_of_p$ymax_list$test
+E_price<-l_of_p$ymax_list$test/2
+S_peak<-max(monthreport_shaved)
+S_price<-max(monthreport_shaved)/2
+Dif_price<-(l_of_p$ymax_list$test-max(monthreport_shaved))/2
+Dif_peak<-l_of_p$ymax_list$test-max(monthreport_shaved)
+temp<-data.frame("December",E_peak,S_peak,Dif_peak,E_price,S_price,Dif_price)
+colnames(temp)<-c('Month', "Expected_Peak","Shaved_Peak","Peak_Reduction","Expected_Price","Shaved_Price","Price_Reduction")
+yearly_table<-rbind(yearly_table,temp)
+plot_ly(
+    mode = 'lines+markers'
+  ) %>%
+  add_trace(
+    y =  ~ l_of_p$test,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = "Test Data",
+    line = list(color = ("black"))
+  ) %>%
+  add_trace(
+    y =  ~ peak_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = paste("Discharging Period"),
+    line = list(color = 'yellow')
+  ) %>%
+  add_trace(
+    y =  ~ low_peak_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = paste("Charging Period"),
+    line = list(color = 'blue')
+  ) %>%
+  add_trace(
+    y =  ~ normal_period,
+    x =  ~ l_of_p$hours,
+    mode = 'lines',
+    type = 'scatter',
+    name = "Prediction",
+    line = list(color = 'red')
+  ) %>%
+  add_trace(
+    x =  ~ l_of_p$xcoord_list$test,
+    y =  ~ l_of_p$ymax_list$test,
+    mode = 'markers',
+    type = 'scatter',
+    name = paste("Highest Peak", l_of_p$ymax_list),
+    marker = list(color = ("black"),size=13,symbol="triangle-up")
+  )%>%
+  layout(
+    title = paste("From",strftime(as.POSIXct(l_of_p$hours[100]), format="%B %d, %Y"),
+                  "to"
+                  ,strftime(as.POSIXct(l_of_p$hours[length(l_of_p$hours)]), format="%B %d, %Y")),
+    xaxis = list(
+      title = 'Time',
+      autotick = TRUE,
+      showticklabels = TRUE
+    ),
+    yaxis = list(title = "Power Consumption")
+  )
+```
+
+
+
+# Yearly Peak Shaving Results
+The digital report of peak shaving activities is shown in Table (\@ref(tab:table1)) monthly. The table presents the comparison of Expected data and data after shaved. The data types have both power consumption and Price.
+<br><br>
+```{r table1,table.cap = "Yearly Results Table\\label{table1}",echo=FALSE, out.width='100%',fig.pos="H"}
+temp<-data.frame("Total",sum(yearly_table$Expected_Peak),sum(yearly_table$Shaved_Peak)，sum(yearly_table$Peak_Reduction)，sum(yearly_table$Expected_Price),sum(yearly_table$Shaved_Price),sum(yearly_table$Price_Reduction))
+colnames(temp)<-c('Month', "Expected_Peak","Shaved_Peak","Peak_Reduction","Expected_Price","Shaved_Price","Price_Reduction")
+yearly_table<-rbind(yearly_table,temp)
+knitr::kable(yearly_table,digits = 2,caption = "Yearly Results Table") %>% 
+ # kbl(booktabs = TRUE) %>%
+  kable_styling() %>%
+  row_spec(13,bold=TRUE)
+
+#knitr::kable(yearly_table,digits = 2,caption = "Yearly Results Table")
+```
